@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: command/CommandClient.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: command/CommandClient.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>"use strict";
+
+const Client = require("../Client");
+const Command = require("./Command");
+const Message = require("../structures/Message");
+
+/**
+* Represents an Eris client with the command framework
+* @extends Client
+* @prop {Object} commandAliases Object mapping command label aliases to command labels
+* @prop {Object} commands Object mapping command labels to Command objects
+* @prop {Object} guildPrefixes Object mapping guild IDs to arrays of guild-specific prefixes
+*/
+class CommandClient extends Client {
+    /**
+    * Create a CommandClient
+    * @arg {String} token bot token
+    * @arg {Object} [options] Eris options (same as Client)
+    * @arg {Object} [commandOptions] Command options
+    * @arg {Boolean} [commandOptions.defaultHelpCommand=true] Whether to register the default help command or not
+    * @arg {String} [commandOptions.description="An Eris-based Discord bot"] The description to show in the default help command
+    * @arg {Boolean} [commandOptions.ignoreBots=true] Whether to ignore bot accounts or not
+    * @arg {Boolean} [commandOptions.ignoreSelf=true] Whether to ignore the bot's own account or not
+    * @arg {String} [commandOptions.name="&lt;Bot username>"] The bot name to show in the default help command
+    * @arg {String} [commandOptions.owner="an unknown user"] The owner to show in the default help command
+    * @arg {String | Array&lt;String>} [commandOptions.prefix="@mention "] The bot prefix. Can be either an array of prefixes or a single prefix. "@mention" will be automatically replaced with the bot's actual mention
+    * @arg {Object} [commandOptions.defaultCommandOptions={}] Default command options. This object takes the same options as a normal Command
+    */
+    constructor(token, options, commandOptions) {
+        super(token, options);
+        this.commandOptions = {
+            defaultHelpCommand: true,
+            description: "An Eris-based Discord bot",
+            ignoreBots: true,
+            ignoreSelf: true,
+            name: null,
+            owner: "an unknown user",
+            prefix: "@mention ",
+            defaultCommandOptions: {}
+        };
+        if(typeof commandOptions === "object") {
+            for(const property of Object.keys(commandOptions)) {
+                this.commandOptions[property] = commandOptions[property];
+            }
+        }
+        this.guildPrefixes = {};
+        this.commands = {};
+        this.commandAliases = {};
+        this.activeMessages = {};
+
+        this.once("shardPreReady", () => {
+            this.preReady = true;
+            if(!this.commandOptions.name) {
+                this.commandOptions.name = `**${this.user.username}**`;
+            }
+            if(Array.isArray(this.commandOptions.prefix)) {
+                for(let i = 0; i &lt; this.commandOptions.prefix.length; i++) {
+                    this.commandOptions.prefix[i] = this.commandOptions.prefix[i].replace(/@mention/g, this.user.mention);
+                }
+            } else {
+                this.commandOptions.prefix = this.commandOptions.prefix.replace(/@mention/g, this.user.mention);
+            }
+            for(const key of Object.keys(this.guildPrefixes)) {
+                if(Array.isArray(this.guildPrefixes[key])) {
+                    for(let i = 0; i &lt; this.guildPrefixes[key].length; i++) {
+                        this.guildPrefixes[key][i] = this.guildPrefixes[key][i].replace(/@mention/g, this.user.mention);
+                    }
+                } else {
+                    this.guildPrefixes[key] = this.guildPrefixes[key].replace(/@mention/g, this.user.mention);
+                }
+            }
+        });
+
+        this.on("messageCreate", this.onMessageCreate);
+
+        this.on("messageReactionAdd", this.onMessageReactionEvent);
+        this.on("messageReactionRemove", this.onMessageReactionEvent);
+
+        if(this.commandOptions.defaultHelpCommand) {
+            this.registerCommand("help", (msg, args) => {
+                let result = "";
+                if(args.length > 0) {
+                    let cur = this.commands[this.commandAliases[args[0]] || args[0]];
+                    if(!cur) {
+                        return "Command not found";
+                    }
+                    let {label} = cur;
+                    for(let i = 1; i &lt; args.length; ++i) {
+                        cur = cur.subcommands[cur.subcommandAliases[args[i]] || args[i]];
+                        if(!cur) {
+                            return "Command not found";
+                        }
+                        label += " " + cur.label;
+                    }
+                    result += `**${msg.prefix}${label}** ${cur.usage}\n${cur.fullDescription}`;
+                    if(cur.aliases.length > 0) {
+                        result += `\n\n**Aliases:** ${cur.aliases.join(", ")}`;
+                    }
+                    const subcommands = Object.keys(cur.subcommands);
+                    if(subcommands.length > 0) {
+                        result += "\n\n**Subcommands:**";
+                        for(const subLabel of subcommands) {
+                            if(cur.subcommands.hasOwnProperty(subLabel) &amp;&amp; cur.subcommands[subLabel].permissionCheck(msg)) {
+                                result += `\n  **${subLabel}** - ${cur.subcommands[subLabel].description}`;
+                            }
+                        }
+                    }
+                } else {
+                    result += `${this.commandOptions.name} - ${this.commandOptions.description}\n`;
+                    if(this.commandOptions.owner) {
+                        result += `by ${this.commandOptions.owner}\n`;
+                    }
+                    result += "\n**Commands:**\n";
+                    for(const label in this.commands) {
+                        if(this.commands.hasOwnProperty(label) &amp;&amp; this.commands[label] &amp;&amp; this.commands[label].permissionCheck(msg) &amp;&amp; !this.commands[label].hidden) {
+                            result += `  **${msg.prefix}${label}** - ${this.commands[label].description}\n`;
+                        }
+                    }
+                    result += `\nType ${msg.prefix}help &lt;command> for more info on a command.`;
+                }
+                return result;
+            }, {
+                description: "This help text",
+                fullDescription: "This command is used to view information of different bot commands, including this one."
+            });
+            if(!this.commandOptions.defaultCommandOptions.invalidUsageMessage) {
+                this.commandOptions.defaultCommandOptions.invalidUsageMessage = "Invalid usage. Do `%prefix%help %label%` to view proper usage.";
+            }
+        } else if(!this.commandOptions.defaultCommandOptions.invalidUsageMessage) {
+            this.commandOptions.defaultCommandOptions.invalidUsageMessage = "Invalid usage.";
+        }
+    }
+
+    /**
+     * Checks the command client for a command based on the provided message
+     * @arg {Message} msg The message object from the message create event
+     */
+    async onMessageCreate(msg) {
+        if(!this.ready) {
+            return;
+        }
+        if(!msg.author) {
+            this.emit("warn", `Message ${msg.id} has author=${msg.author} | Channel ${msg.channel.id}, timestamp ${Date.now()}`);
+            return;
+        }
+
+        msg.command = false;
+        if((!this.commandOptions.ignoreSelf || msg.author.id !== this.user.id) &amp;&amp; (!this.commandOptions.ignoreBots || !msg.author.bot) &amp;&amp; (msg.prefix = this.checkPrefix(msg))) {
+            const args = msg.content.replace(/&lt;@!/g, "&lt;@").substring(msg.prefix.length).split(" ");
+            const label = args.shift();
+            const command = this.resolveCommand(label);
+            if(command !== undefined) {
+                msg.command = command;
+                try {
+                    let resp = await msg.command.process(args, msg);
+                    if(resp != null) {
+                        if(!(resp instanceof Message)) {
+                            resp = await this.createMessage(msg.channel.id, resp);
+                        }
+                        if (msg.command.reactionButtons) {
+                            msg.command.reactionButtons.forEach((button) => resp.addReaction(button.emoji));
+                            this.activeMessages[resp.id] = {
+                                args: args,
+                                command: msg.command,
+                                timeout: setTimeout(() => {
+                                    this.unwatchMessage(resp.id, resp.channel.id);
+                                }, msg.command.reactionButtonTimeout)
+                            };
+                        }
+                    }
+                    if(msg.command.hooks.postCommand) {
+                        msg.command.hooks.postCommand(msg, args, resp);
+                    }
+                } catch(err) {
+                    this.emit("error", err);
+                    if(msg.command.hooks.postExecution) {
+                        msg.command.hooks.postExecution(msg, args, false);
+                    }
+                    let newMsg;
+                    if(msg.command.errorMessage) {
+                        if(typeof msg.command.errorMessage === "function") {
+                            const reply = msg.command.errorMessage();
+                            if(reply !== undefined) {
+                                newMsg = await this.createMessage(msg.channel.id, reply);
+                            }
+                        } else {
+                            newMsg = await this.createMessage(msg.channel.id, msg.command.errorMessage);
+                        }
+                    }
+                    if(msg.command.hooks.postCommand) {
+                        msg.command.hooks.postCommand(msg, args, newMsg);
+                    }
+                }
+            }
+        }
+    }
+
+    resolveCommand(label) {
+        label = this.commandAliases[label] || label;
+        let command = this.commands[label];
+        if(command) {
+            return command;
+        }
+        label = label.toLowerCase();
+        label = this.commandAliases[label] || label;
+        command = this.commands[label];
+        if(command &amp;&amp; command.caseInsensitive) {
+            return command;
+        }
+    }
+
+    async onMessageReactionEvent(msg, emoji, userID) {
+        if(!this.ready || userID === this.user.id || !(msg.content || msg.embeds || msg.attachments)) {
+            return;
+        }
+
+        emoji = emoji.id ? `${emoji.name}:${emoji.id}` : emoji.name;
+
+        const activeMessage = this.activeMessages[msg.id];
+        if(activeMessage &amp;&amp; activeMessage.command.reactionButtons) {
+            const action = activeMessage.command.reactionButtons.find((button) => button.emoji === emoji);
+            if(!action) {
+                return;
+            }
+
+            if(action.filter &amp;&amp; !action.filter(msg, emoji, userID)) {
+                return;
+            }
+
+            switch(action.type) {
+                case "cancel": {
+                    this.unwatchMessage(msg.id, msg.channel.guild &amp;&amp; msg.channel.id);
+                    try {
+                        const resp = await action.execute(msg, activeMessage.args, userID);
+                        if(resp != null) {
+                            await this.editMessage(msg.channel.id, msg.id, resp);
+                        }
+                    } catch(err) {} // eslint-disable-line no-empty
+                    break;
+                }
+                case "edit":
+                default: {
+                    try {
+                        const resp = await action.execute(msg, activeMessage.args, userID);
+                        if(resp != null) {
+                            await this.editMessage(msg.channel.id, msg.id, resp);
+                        }
+                    } catch(err) {} // eslint-disable-line no-empty
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+    * Register a prefix override for a specific guild
+    * @arg {String} guildID The ID of the guild to override prefixes for
+    * @arg {String | Array} prefix The bot prefix. Can be either an array of prefixes or a single prefix. "@mention" will be automatically replaced with the bot's actual mention
+    */
+    registerGuildPrefix(guildID, prefix) {
+        if(!this.preReady) {
+            this.guildPrefixes[guildID] = prefix;
+        } else if(Array.isArray(prefix)) {
+            for(let i = 0; i &lt; prefix.length; i++) {
+                prefix[i] = prefix[i].replace(/@mention/g, this.user.mention);
+            }
+            this.guildPrefixes[guildID] = prefix;
+        } else {
+            this.guildPrefixes[guildID] = prefix.replace(/@mention/g, this.user.mention);
+        }
+    }
+
+    checkPrefix(msg) {
+        let prefixes = this.commandOptions.prefix;
+        if(msg.channel.guild !== undefined &amp;&amp; this.guildPrefixes[msg.channel.guild.id] !== undefined) {
+            prefixes = this.guildPrefixes[msg.channel.guild.id];
+        }
+        if(typeof prefixes === "string") {
+            return msg.content.replace(/&lt;@!/g, "&lt;@").startsWith(prefixes) &amp;&amp; prefixes;
+        } else if(Array.isArray(prefixes)) {
+            return prefixes.find((prefix) => msg.content.replace(/&lt;@!/g, "&lt;@").startsWith(prefix));
+        }
+        throw new Error("Unsupported prefix format | " + prefixes);
+    }
+
+    /**
+    * Register an alias for a command
+    * @arg {String} alias The alias
+    * @arg {String} label The original command label
+    */
+    registerCommandAlias(alias, label) {
+        let caseInsensitiveLabel = false;
+        if(!this.commands[label] &amp;&amp; !(this.commands[(label = label.toLowerCase())] &amp;&amp; (caseInsensitiveLabel = this.commands[label.toLowerCase()].caseInsensitive))) {
+            throw new Error("No command registered for " + label);
+        }
+        alias = caseInsensitiveLabel === true ? alias.toLowerCase() : alias;
+        if(this.commandAliases[alias]) {
+            throw new Error(`Alias ${alias} already registered`);
+        }
+        this.commandAliases[alias] = label;
+        this.commands[label].aliases.push(alias);
+    }
+
+    /**
+    * Register a command
+    * @arg {String} label The command label
+    * @arg {Function | String | Array&lt;Function | String>} generator A response string, array of functions or strings, or function that generates a string or array of strings when called.
+    * If a function is passed, the function will be passed a Message object and an array of command arguments. The Message object will have an additional property `prefix`, which is the prefix used in the command.
+    * `generator(msg, args)`
+    * @arg {Object} [options] Command options
+    * @arg {Array&lt;String>} [options.aliases] An array of command aliases
+    * @arg {Boolean} [options.argsRequired=false] If arguments are required or not
+    * @arg {Boolean} [options.caseInsensitive=false] Whether the command label (and aliases) is case insensitive or not
+    * @arg {Number} [options.cooldown] The cooldown between command usage in milliseconds
+    * @arg {Object} [options.cooldownExclusions={}] A set of factors that limit where cooldowns are active
+    * @arg {Array&lt;String>} [options.cooldownExclusions.userIDs] An array of user IDs representing users that are not affected by cooldowns.
+    * @arg {Array&lt;String>} [options.cooldownExclusions.guildIDs] An array of guild IDs representing guilds that are not affected by cooldowns.
+    * @arg {Array&lt;String>} [options.cooldownExclusions.channelIDs] An array of channel IDs representing channels that are not affected by cooldowns.
+    * @arg {Function | String} [options.cooldownMessage] A string or a function that returns a string to show when the command is on cooldown
+    * @arg {Number} [option.cooldownReturns=0] Number of times to return a message when the command is used during it's cooldown.  Once the cooldown expires this is reset.  Set this to 0 to always return a message.
+    * @arg {Object} [options.defaultSubcommandOptions={}] Default subcommand options. This object takes the same options as a normal Command
+    * @arg {Boolean} [options.deleteCommand=false] Whether to delete the user command message or not
+    * @arg {String} [options.description="No description"] A short description of the command to show in the default help command
+    * @arg {Boolean} [options.dmOnly=false] Whether to prevent the command from being used in guilds or not
+    * @arg {Function | String} [options.errorMessage] A string or a function that returns a string to show if the execution of the command handler somehow fails.
+    * @arg {String} [options.fullDescription="No full description"] A detailed description of the command to show in the default help command
+    * @arg {Boolean} [options.guildOnly=false] Whether to prevent the command from being used in Direct Messages or not
+    * @arg {Boolean} [options.hidden=false] Whether or not the command should be hidden from the default help command list
+    * @arg {Object} [options.hooks] A set of functions to be executed at different times throughout the command's processing
+    * @arg {Function} [options.hooks.preCommand] A function that is executed before any permission or cooldown checks is made. The function is passed the command message and arguments as parameters.
+    * @arg {Function} [options.hooks.postCheck] A function that is executed after all checks have cleared, but before the command is executed. The function is passed the command message, arguments, and if command checks were passed as parameters.
+    * @arg {Function} [options.hooks.postExecution] A function that is executed after the command is executed, regardless of the final failed state of the command. The function is passed the command message, arguments, and if execution succeeded as parameters.
+    * @arg {Function} [options.hooks.postCommand] A function that is executed after a response has been posted, and the command has finished processing. The function is passed the command message, arguments, and the response message (if applicable) as parameters.
+    * @arg {Function | String} [options.invalidUsageMessage] A string or a function that returns a string to show when a command was improperly used
+    * @arg {Function | String} [options.permissionMessage] A string or a function that returns a string to show when the user doesn't have permissions to use the command
+    * @arg {Array&lt;{emoji: String, type: String, response: (Function | String | Array&lt;Function | String>)}>} [options.reactionButtons] An array of objects specifying reaction buttons
+    * `emoji` specifies the button emoji. Custom emojis should be in format `emojiName:emojiID`
+    * `type` specifies the type of the reaction button, either "edit" or "cancel"
+    * `response` specifies the content to edit the message to when the reaction button is pressed. This accepts the same arguments as the `generator` parameter of this function, but with an extra userID parameter for generator functions (`function(msg, args, userID)`) describing the user that made the reaction
+    * `filter` specifies a function (`function(msg, emoji, userID)`) that filters message reactions. If the function returns false, the reaction is not treated as a valid reaction button response
+    * @arg {Number} [options.reactionButtonTimeout=60000] Time (in milliseconds) to wait before invalidating the command's reaction buttons
+    * @arg {Object} [options.requirements] A set of factors that limit who can call the command
+    * @arg {Function | Array&lt;String>} [options.requirements.userIDs] An array or a function that returns an array of user IDs representing users that can call the command
+    * @arg {Function | Object} [options.requirements.permissions] An object or a function that returns an object containing permission keys the user must match to use the command
+    * i.e.:
+    * ```
+    * {
+    *   "administrator": false,
+    *   "manageMessages": true
+    * }
+    * ```
+    * In the above example, the user must not have administrator permissions, but must have manageMessages to use the command
+    * @arg {Function | Array&lt;String>} [options.requirements.roleIDs] An array or a function that returns an array of role IDs that would allow a user to use the command
+    * @arg {Function | Array&lt;String>} [options.requirements.roleNames] An array or a function that returns an array of role names that would allow a user to use the command
+    * @arg {Function} [options.requirements.custom] A function that accepts a message and returns true if the command should be run
+    * @arg {Boolean} [option.restartCooldown=false] Whether or not to restart a command's cooldown every time it's used.
+    * @arg {String} [options.usage] Details on how to call the command to show in the default help command
+    * @returns {Command}
+    */
+    registerCommand(label, generator, options = {}) {
+        if(label.includes(" ")) {
+            throw new Error("Command label may not have spaces");
+        }
+        let lowercaseCommand = label.toLowerCase();
+        if(this.commands[label] || (this.commands[lowercaseCommand] &amp;&amp; this.commands[lowercaseCommand].caseInsensitive)) {
+            throw new Error("You have already registered a command for " + label);
+        }
+        // Aliases are not deleted when deleting commands
+        let command = this.commandAliases[label]; // Just to make the following if statement less messy
+        lowercaseCommand = this.commandAliases[label.toLowerCase()];
+        if(this.commands[command] || (this.commands[lowercaseCommand] &amp;&amp; this.commands[lowercaseCommand].caseInsensitive)) {
+            throw new Error(`Alias ${label} already registered`);
+        }
+        options.defaultSubcommandOptions = options.defaultSubcommandOptions || {};
+        for(const key in this.commandOptions.defaultCommandOptions) {
+            if(this.commandOptions.defaultCommandOptions.hasOwnProperty(key) &amp;&amp; options[key] === undefined) {
+                options[key] = this.commandOptions.defaultCommandOptions[key];
+                options.defaultSubcommandOptions[key] = this.commandOptions.defaultCommandOptions[key];
+            }
+        }
+        label = options.caseInsensitive === true ? label.toLowerCase() : label;
+        if(this.commands[label]) {
+            throw new Error("You have already registered a command for " + label);
+        }
+        command = this.commandAliases[label];
+        if(this.commands[command]) {
+            throw new Error(`Alias ${command} already registered`);
+        }
+        if(options.aliases) {
+            options.aliases.forEach((alias) => {
+                lowercaseCommand = alias.toLowerCase();
+                if(this.commands[alias] || (this.commands[lowercaseCommand] &amp;&amp; this.commands[lowercaseCommand].caseInsensitive)) {
+                    throw new Error("You have already registered a command for alias " + alias);
+                }
+                command = this.commandAliases[alias];
+                lowercaseCommand = this.commandAliases[alias.toLowerCase()];
+                if(this.commands[command] || (this.commands[lowercaseCommand] &amp;&amp; this.commands[lowercaseCommand].caseInsensitive)) {
+                    throw new Error(`Alias ${alias} already registered`);
+                }
+                alias = options.caseInsensitive === true ? alias.toLowerCase() : alias;
+                if(this.commands[alias]) {
+                    throw new Error("You have already registered a command for alias " + alias);
+                }
+                command = this.commandAliases[alias];
+                if(this.commands[command]) {
+                    throw new Error(`Alias ${alias} already registered`);
+                }
+                this.commandAliases[alias] = label;
+            });
+        }
+        this.commands[label] = new Command(label, generator, options);
+        return this.commands[label];
+    }
+
+    /**
+    * Unregister a command
+    * @arg {String} label The command label
+    */
+    unregisterCommand(label) {
+        const original = this.commandAliases[label];
+        if(original) {
+            this.commands[original].aliases.splice(this.commands[original].aliases.indexOf(label), 1);
+            delete this.commandAliases[label];
+        } else {
+            delete this.commands[label];
+        }
+    }
+
+    unwatchMessage(id, channelID) {
+        delete this.activeMessages[id];
+        if(channelID) {
+            this.removeMessageReactions(channelID, id).catch(function(){});
+        }
+    }
+}
+
+module.exports = CommandClient;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Bucket.html">Bucket</a></li><li><a href="Call.html">Call</a></li><li><a href="CategoryChannel.html">CategoryChannel</a></li><li><a href="Channel.html">Channel</a></li><li><a href="Client.html">Client</a></li><li><a href="Collection.html">Collection</a></li><li><a href="Command.html">Command</a></li><li><a href="CommandClient.html">CommandClient</a></li><li><a href="ExtendedUser.html">ExtendedUser</a></li><li><a href="GroupChannel.html">GroupChannel</a></li><li><a href="Guild.html">Guild</a></li><li><a href="GuildAuditLogEntry.html">GuildAuditLogEntry</a></li><li><a href="GuildChannel.html">GuildChannel</a></li><li><a href="GuildIntegration.html">GuildIntegration</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Member.html">Member</a></li><li><a href="Message.html">Message</a></li><li><a href="Permission.html">Permission</a></li><li><a href="PermissionOverwrite.html">PermissionOverwrite</a></li><li><a href="PrivateChannel.html">PrivateChannel</a></li><li><a href="Relationship.html">Relationship</a></li><li><a href="RequestHandler.html">RequestHandler</a></li><li><a href="Role.html">Role</a></li><li><a href="SequentialBucket.html">SequentialBucket</a></li><li><a href="Shard.html">Shard</a></li><li><a href="SharedStream.html">SharedStream</a></li><li><a href="TextChannel.html">TextChannel</a></li><li><a href="UnavailableGuild.html">UnavailableGuild</a></li><li><a href="User.html">User</a></li><li><a href="VoiceChannel.html">VoiceChannel</a></li><li><a href="VoiceConnection.html">VoiceConnection</a></li><li><a href="VoiceDataStream.html">VoiceDataStream</a></li><li><a href="VoiceState.html">VoiceState</a></li></ul><h3>Events</h3><ul><li><a href="Client.html#event:callCreate">callCreate</a></li><li><a href="Client.html#event:callDelete">callDelete</a></li><li><a href="Client.html#event:callRing">callRing</a></li><li><a href="Client.html#event:callUpdate">callUpdate</a></li><li><a href="Client.html#event:channelCreate">channelCreate</a></li><li><a href="Client.html#event:channelDelete">channelDelete</a></li><li><a href="Client.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="Client.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="Client.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="Client.html#event:channelUpdate">channelUpdate</a></li><li><a href="Client.html#event:connect">connect</a></li><li><a href="Client.html#event:debug">debug</a></li><li><a href="Client.html#event:disconnect">disconnect</a></li><li><a href="Client.html#event:error">error</a></li><li><a href="Client.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="Client.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="Client.html#event:guildAvailable">guildAvailable</a></li><li><a href="Client.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="Client.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="Client.html#event:guildCreate">guildCreate</a></li><li><a href="Client.html#event:guildDelete">guildDelete</a></li><li><a href="Client.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="Client.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="Client.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="Client.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="Client.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="Client.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="Client.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="Client.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="Client.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="Client.html#event:guildUpdate">guildUpdate</a></li><li><a href="Client.html#event:hello">hello</a></li><li><a href="Client.html#event:messageCreate">messageCreate</a></li><li><a href="Client.html#event:messageDelete">messageDelete</a></li><li><a href="Client.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="Client.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="Client.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="Client.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="Client.html#event:messageUpdate">messageUpdate</a></li><li><a href="Client.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="Client.html#event:rawWS">rawWS</a></li><li><a href="Client.html#event:ready">ready</a></li><li><a href="Client.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="Client.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="Client.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="Client.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="Client.html#event:shardPreReady">shardPreReady</a></li><li><a href="Client.html#event:shardReady">shardReady</a></li><li><a href="Client.html#event:shardResume">shardResume</a></li><li><a href="Client.html#event:typingStart">typingStart</a></li><li><a href="Client.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="Client.html#event:unknown">unknown</a></li><li><a href="Client.html#event:userUpdate">userUpdate</a></li><li><a href="Client.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="Client.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="Client.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="Client.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="Client.html#event:warn">warn</a></li><li><a href="Client.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="CommandClient.html#event:callCreate">callCreate</a></li><li><a href="CommandClient.html#event:callDelete">callDelete</a></li><li><a href="CommandClient.html#event:callRing">callRing</a></li><li><a href="CommandClient.html#event:callUpdate">callUpdate</a></li><li><a href="CommandClient.html#event:channelCreate">channelCreate</a></li><li><a href="CommandClient.html#event:channelDelete">channelDelete</a></li><li><a href="CommandClient.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="CommandClient.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="CommandClient.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="CommandClient.html#event:channelUpdate">channelUpdate</a></li><li><a href="CommandClient.html#event:connect">connect</a></li><li><a href="CommandClient.html#event:debug">debug</a></li><li><a href="CommandClient.html#event:disconnect">disconnect</a></li><li><a href="CommandClient.html#event:error">error</a></li><li><a href="CommandClient.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="CommandClient.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="CommandClient.html#event:guildAvailable">guildAvailable</a></li><li><a href="CommandClient.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="CommandClient.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="CommandClient.html#event:guildCreate">guildCreate</a></li><li><a href="CommandClient.html#event:guildDelete">guildDelete</a></li><li><a href="CommandClient.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="CommandClient.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="CommandClient.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="CommandClient.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="CommandClient.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="CommandClient.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="CommandClient.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="CommandClient.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="CommandClient.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="CommandClient.html#event:guildUpdate">guildUpdate</a></li><li><a href="CommandClient.html#event:hello">hello</a></li><li><a href="CommandClient.html#event:messageCreate">messageCreate</a></li><li><a href="CommandClient.html#event:messageDelete">messageDelete</a></li><li><a href="CommandClient.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="CommandClient.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="CommandClient.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="CommandClient.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="CommandClient.html#event:messageUpdate">messageUpdate</a></li><li><a href="CommandClient.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="CommandClient.html#event:rawWS">rawWS</a></li><li><a href="CommandClient.html#event:ready">ready</a></li><li><a href="CommandClient.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="CommandClient.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="CommandClient.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="CommandClient.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="CommandClient.html#event:shardPreReady">shardPreReady</a></li><li><a href="CommandClient.html#event:shardReady">shardReady</a></li><li><a href="CommandClient.html#event:shardResume">shardResume</a></li><li><a href="CommandClient.html#event:typingStart">typingStart</a></li><li><a href="CommandClient.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="CommandClient.html#event:unknown">unknown</a></li><li><a href="CommandClient.html#event:userUpdate">userUpdate</a></li><li><a href="CommandClient.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="CommandClient.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="CommandClient.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="CommandClient.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="CommandClient.html#event:warn">warn</a></li><li><a href="CommandClient.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="Shard.html#event:disconnect">disconnect</a></li><li><a href="Shard.html#event:ready">ready</a></li><li><a href="Shard.html#event:resume">resume</a></li><li><a href="SharedStream.html#event:end">end</a></li><li><a href="SharedStream.html#event:start">start</a></li><li><a href="VoiceConnection.html#event:connect">connect</a></li><li><a href="VoiceConnection.html#event:debug">debug</a></li><li><a href="VoiceConnection.html#event:disconnect">disconnect</a></li><li><a href="VoiceConnection.html#event:end">end</a></li><li><a href="VoiceConnection.html#event:error">error</a></li><li><a href="VoiceConnection.html#event:pong">pong</a></li><li><a href="VoiceConnection.html#event:ready">ready</a></li><li><a href="VoiceConnection.html#event:speakingStart">speakingStart</a></li><li><a href="VoiceConnection.html#event:speakingStop">speakingStop</a></li><li><a href="VoiceConnection.html#event:warn">warn</a></li><li><a href="VoiceDataStream.html#event:data">data</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Sat May 04 2019 18:29:34 GMT-0400 (Eastern Daylight Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

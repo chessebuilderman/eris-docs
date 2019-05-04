@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Class: Call</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Class: Call</h1>
+
+    
+
+
+
+
+<section>
+
+<header>
+    
+        <h2><span class="attribs"><span class="type-signature"></span></span>Call<span class="signature">()</span><span class="type-signature"></span></h2>
+        
+            <div class="class-description">Represents a call</div>
+        
+    
+</header>
+
+<article>
+    <div class="container-overview">
+    
+        
+
+    
+    <h2>Constructor</h2>
+    
+
+    
+    <h4 class="name" id="Call"><span class="type-signature"></span>new Call<span class="signature">()</span><span class="type-signature"></span></h4>
+    
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="subsection-title">Properties:</h5>
+
+    
+
+<table class="props">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>id</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The ID of the call</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>createdAt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Timestamp of the call's creation</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>channel</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="GroupChannel.html">GroupChannel</a></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The call channel</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>voiceStates</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type"><a href="Collection.html">Collection</a>.&lt;<a href="VoiceState.html">VoiceState</a>></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The voice states of the call participants</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>participants</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array.&lt;String></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The IDs of the call participants</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>endedTimestamp</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                    &lt;nullable><br>
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The timestamp of the call end</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>ringing</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array.&lt;String></span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                    &lt;nullable><br>
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The IDs of people that still have not responded to the call request</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>region</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                    &lt;nullable><br>
+                
+                </td>
+            
+
+            
+
+            <td class="description last">The region of the call server</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>unavailable</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+
+                
+                </td>
+            
+
+            
+
+            <td class="description last">Whether the call is unavailable or not</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="structures_Call.js.html">structures/Call.js</a>, <a href="structures_Call.js.html#line19">line 19</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    </div>
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</article>
+
+</section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Bucket.html">Bucket</a></li><li><a href="Call.html">Call</a></li><li><a href="CategoryChannel.html">CategoryChannel</a></li><li><a href="Channel.html">Channel</a></li><li><a href="Client.html">Client</a></li><li><a href="Collection.html">Collection</a></li><li><a href="Command.html">Command</a></li><li><a href="CommandClient.html">CommandClient</a></li><li><a href="ExtendedUser.html">ExtendedUser</a></li><li><a href="GroupChannel.html">GroupChannel</a></li><li><a href="Guild.html">Guild</a></li><li><a href="GuildAuditLogEntry.html">GuildAuditLogEntry</a></li><li><a href="GuildChannel.html">GuildChannel</a></li><li><a href="GuildIntegration.html">GuildIntegration</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Member.html">Member</a></li><li><a href="Message.html">Message</a></li><li><a href="Permission.html">Permission</a></li><li><a href="PermissionOverwrite.html">PermissionOverwrite</a></li><li><a href="PrivateChannel.html">PrivateChannel</a></li><li><a href="Relationship.html">Relationship</a></li><li><a href="RequestHandler.html">RequestHandler</a></li><li><a href="Role.html">Role</a></li><li><a href="SequentialBucket.html">SequentialBucket</a></li><li><a href="Shard.html">Shard</a></li><li><a href="SharedStream.html">SharedStream</a></li><li><a href="TextChannel.html">TextChannel</a></li><li><a href="UnavailableGuild.html">UnavailableGuild</a></li><li><a href="User.html">User</a></li><li><a href="VoiceChannel.html">VoiceChannel</a></li><li><a href="VoiceConnection.html">VoiceConnection</a></li><li><a href="VoiceDataStream.html">VoiceDataStream</a></li><li><a href="VoiceState.html">VoiceState</a></li></ul><h3>Events</h3><ul><li><a href="Client.html#event:callCreate">callCreate</a></li><li><a href="Client.html#event:callDelete">callDelete</a></li><li><a href="Client.html#event:callRing">callRing</a></li><li><a href="Client.html#event:callUpdate">callUpdate</a></li><li><a href="Client.html#event:channelCreate">channelCreate</a></li><li><a href="Client.html#event:channelDelete">channelDelete</a></li><li><a href="Client.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="Client.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="Client.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="Client.html#event:channelUpdate">channelUpdate</a></li><li><a href="Client.html#event:connect">connect</a></li><li><a href="Client.html#event:debug">debug</a></li><li><a href="Client.html#event:disconnect">disconnect</a></li><li><a href="Client.html#event:error">error</a></li><li><a href="Client.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="Client.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="Client.html#event:guildAvailable">guildAvailable</a></li><li><a href="Client.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="Client.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="Client.html#event:guildCreate">guildCreate</a></li><li><a href="Client.html#event:guildDelete">guildDelete</a></li><li><a href="Client.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="Client.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="Client.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="Client.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="Client.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="Client.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="Client.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="Client.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="Client.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="Client.html#event:guildUpdate">guildUpdate</a></li><li><a href="Client.html#event:hello">hello</a></li><li><a href="Client.html#event:messageCreate">messageCreate</a></li><li><a href="Client.html#event:messageDelete">messageDelete</a></li><li><a href="Client.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="Client.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="Client.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="Client.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="Client.html#event:messageUpdate">messageUpdate</a></li><li><a href="Client.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="Client.html#event:rawWS">rawWS</a></li><li><a href="Client.html#event:ready">ready</a></li><li><a href="Client.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="Client.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="Client.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="Client.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="Client.html#event:shardPreReady">shardPreReady</a></li><li><a href="Client.html#event:shardReady">shardReady</a></li><li><a href="Client.html#event:shardResume">shardResume</a></li><li><a href="Client.html#event:typingStart">typingStart</a></li><li><a href="Client.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="Client.html#event:unknown">unknown</a></li><li><a href="Client.html#event:userUpdate">userUpdate</a></li><li><a href="Client.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="Client.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="Client.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="Client.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="Client.html#event:warn">warn</a></li><li><a href="Client.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="CommandClient.html#event:callCreate">callCreate</a></li><li><a href="CommandClient.html#event:callDelete">callDelete</a></li><li><a href="CommandClient.html#event:callRing">callRing</a></li><li><a href="CommandClient.html#event:callUpdate">callUpdate</a></li><li><a href="CommandClient.html#event:channelCreate">channelCreate</a></li><li><a href="CommandClient.html#event:channelDelete">channelDelete</a></li><li><a href="CommandClient.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="CommandClient.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="CommandClient.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="CommandClient.html#event:channelUpdate">channelUpdate</a></li><li><a href="CommandClient.html#event:connect">connect</a></li><li><a href="CommandClient.html#event:debug">debug</a></li><li><a href="CommandClient.html#event:disconnect">disconnect</a></li><li><a href="CommandClient.html#event:error">error</a></li><li><a href="CommandClient.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="CommandClient.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="CommandClient.html#event:guildAvailable">guildAvailable</a></li><li><a href="CommandClient.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="CommandClient.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="CommandClient.html#event:guildCreate">guildCreate</a></li><li><a href="CommandClient.html#event:guildDelete">guildDelete</a></li><li><a href="CommandClient.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="CommandClient.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="CommandClient.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="CommandClient.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="CommandClient.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="CommandClient.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="CommandClient.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="CommandClient.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="CommandClient.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="CommandClient.html#event:guildUpdate">guildUpdate</a></li><li><a href="CommandClient.html#event:hello">hello</a></li><li><a href="CommandClient.html#event:messageCreate">messageCreate</a></li><li><a href="CommandClient.html#event:messageDelete">messageDelete</a></li><li><a href="CommandClient.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="CommandClient.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="CommandClient.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="CommandClient.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="CommandClient.html#event:messageUpdate">messageUpdate</a></li><li><a href="CommandClient.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="CommandClient.html#event:rawWS">rawWS</a></li><li><a href="CommandClient.html#event:ready">ready</a></li><li><a href="CommandClient.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="CommandClient.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="CommandClient.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="CommandClient.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="CommandClient.html#event:shardPreReady">shardPreReady</a></li><li><a href="CommandClient.html#event:shardReady">shardReady</a></li><li><a href="CommandClient.html#event:shardResume">shardResume</a></li><li><a href="CommandClient.html#event:typingStart">typingStart</a></li><li><a href="CommandClient.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="CommandClient.html#event:unknown">unknown</a></li><li><a href="CommandClient.html#event:userUpdate">userUpdate</a></li><li><a href="CommandClient.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="CommandClient.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="CommandClient.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="CommandClient.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="CommandClient.html#event:warn">warn</a></li><li><a href="CommandClient.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="Shard.html#event:disconnect">disconnect</a></li><li><a href="Shard.html#event:ready">ready</a></li><li><a href="Shard.html#event:resume">resume</a></li><li><a href="SharedStream.html#event:end">end</a></li><li><a href="SharedStream.html#event:start">start</a></li><li><a href="VoiceConnection.html#event:connect">connect</a></li><li><a href="VoiceConnection.html#event:debug">debug</a></li><li><a href="VoiceConnection.html#event:disconnect">disconnect</a></li><li><a href="VoiceConnection.html#event:end">end</a></li><li><a href="VoiceConnection.html#event:error">error</a></li><li><a href="VoiceConnection.html#event:pong">pong</a></li><li><a href="VoiceConnection.html#event:ready">ready</a></li><li><a href="VoiceConnection.html#event:speakingStart">speakingStart</a></li><li><a href="VoiceConnection.html#event:speakingStop">speakingStop</a></li><li><a href="VoiceConnection.html#event:warn">warn</a></li><li><a href="VoiceDataStream.html#event:data">data</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Sat May 04 2019 18:29:34 GMT-0400 (Eastern Daylight Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

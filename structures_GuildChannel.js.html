@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: structures/GuildChannel.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: structures/GuildChannel.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>"use strict";
+
+const Channel = require("./Channel");
+const Collection = require("../util/Collection");
+const Permission = require("./Permission");
+const Permissions = require("../Constants").Permissions;
+const PermissionOverwrite = require("./PermissionOverwrite");
+
+/**
+* Represents a guild channel. You also probably want to look at CategoryChannel, TextChannel, and VoiceChannel.
+* @extends Channel
+* @prop {String} id The ID of the channel
+* @prop {String} mention A string that mentions the channel
+* @prop {Number} type The type of the channel
+* @prop {Guild} guild The guild that owns the channel
+* @prop {String?} parentID The ID of the category this channel belongs to
+* @prop {String} name The name of the channel
+* @prop {Number} position The position of the channel
+* @prop {Boolean} nsfw Whether the channel is an NSFW channel or not
+* @prop {Collection&lt;PermissionOverwrite>} permissionOverwrites Collection of PermissionOverwrites in this channel
+*/
+class GuildChannel extends Channel {
+    constructor(data, guild) {
+        super(data);
+        if (!guild &amp;&amp; data.guild_id) {
+            this.guild = {
+                id: data.guild_id
+            };
+        } else {
+            this.guild = guild;
+        }
+
+        this.update(data);
+    }
+
+    update(data) {
+        this.type = data.type !== undefined ? data.type : this.type;
+        this.name = data.name !== undefined ? data.name : this.name;
+        this.position = data.position !== undefined ? data.position : this.position;
+        this.parentID = data.parent_id !== undefined ? data.parent_id : this.parentID;
+        this.nsfw = (this.name.length === 4 ? this.name === "nsfw" : this.name.startsWith("nsfw-")) || data.nsfw;
+        if(data.permission_overwrites) {
+            this.permissionOverwrites = new Collection(PermissionOverwrite);
+            data.permission_overwrites.forEach((overwrite) => {
+                this.permissionOverwrites.add(overwrite);
+            });
+        }
+    }
+
+    /**
+    * Get the channel-specific permissions of a member
+    * @arg {String} memberID The ID of the member
+    * @returns {Permission}
+    */
+    permissionsOf(memberID) {
+        const member = this.guild.members.get(memberID);
+        let permission = member.permission.allow;
+        if(permission &amp; Permissions.administrator) {
+            return new Permission(Permissions.all);
+        }
+        let overwrite = this.permissionOverwrites.get(this.guild.id);
+        if(overwrite) {
+            permission = (permission &amp; ~overwrite.deny) | overwrite.allow;
+        }
+        let deny = 0;
+        let allow = 0;
+        for(const roleID of member.roles) {
+            if((overwrite = this.permissionOverwrites.get(roleID))) {
+                deny |= overwrite.deny;
+                allow |= overwrite.allow;
+            }
+        }
+        permission = (permission &amp; ~deny) | allow;
+        overwrite = this.permissionOverwrites.get(memberID);
+        if(overwrite) {
+            permission = (permission &amp; ~overwrite.deny) | overwrite.allow;
+        }
+        return new Permission(permission);
+    }
+
+    /**
+    * Edit the channel's properties
+    * @arg {Object} options The properties to edit
+    * @arg {String} [options.name] The name of the channel
+    * @arg {String} [options.topic] The topic of the channel (guild text channels only)
+    * @arg {Number} [options.bitrate] The bitrate of the channel (guild voice channels only)
+    * @arg {Number} [options.userLimit] The channel user limit (guild voice channels only)
+    * @arg {Number} [options.rateLimitPerUser] The time in seconds a user has to wait before sending another message (does not affect bots or users with manageMessages/manageChannel permissions) (guild text channels only)
+    * @arg {Number?} [options.parentID] The ID of the parent channel category for this channel (guild text/voice channels only)
+    * @arg {String} [reason] The reason to be displayed in audit logs
+    * @returns {Promise&lt;CategoryChannel | TextChannel | VoiceChannel>}
+    */
+    edit(options, reason) {
+        return this.guild.shard.client.editChannel.call(this.guild.shard.client, this.id, options, reason);
+    }
+
+    /**
+    * Edit the channel's position. Note that channel position numbers are lowest on top and highest at the bottom.
+    * @arg {Number} position The new position of the channel
+    * @returns {Promise}
+    */
+    editPosition(position) {
+        return this.guild.shard.client.editChannelPosition.call(this.guild.shard.client, this.id, position);
+    }
+
+    /**
+    * Delete the channel
+    * @arg {String} [reason] The reason to be displayed in audit logs
+    * @returns {Promise}
+    */
+    delete(reason) {
+        return this.guild.shard.client.deleteChannel.call(this.guild.shard.client, this.id, reason);
+    }
+
+    /**
+    * Create a channel permission overwrite
+    * @arg {String} overwriteID The ID of the overwritten user or role
+    * @arg {Number} allow The permissions number for allowed permissions
+    * @arg {Number} deny The permissions number for denied permissions
+    * @arg {String} type The object type of the overwrite, either "member" or "role"
+    * @arg {String} [reason] The reason to be displayed in audit logs
+    * @returns {Promise&lt;PermissionOverwrite>}
+    */
+    editPermission(overwriteID, allow, deny, type, reason) {
+        return this.guild.shard.client.editChannelPermission.call(this.guild.shard.client, this.id, overwriteID, allow, deny, type, reason);
+    }
+
+    /**
+    * Delete a channel permission overwrite
+    * @arg {String} overwriteID The ID of the overwritten user or role
+    * @arg {String} [reason] The reason to be displayed in audit logs
+    * @returns {Promise}
+    */
+    deletePermission(overwriteID, reason) {
+        return this.guild.shard.client.deleteChannelPermission.call(this.guild.shard.client, this.id, overwriteID, reason);
+    }
+
+    toJSON() {
+        const base = super.toJSON(true);
+        for(const prop of ["name", "nsfw", "parentID", "permissionOverwrites", "position"]) {
+            if(this[prop] !== undefined) {
+                base[prop] = this[prop] &amp;&amp; this[prop].toJSON ? this[prop].toJSON() : this[prop];
+            }
+        }
+        return base;
+    }
+}
+
+module.exports = GuildChannel;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Bucket.html">Bucket</a></li><li><a href="Call.html">Call</a></li><li><a href="CategoryChannel.html">CategoryChannel</a></li><li><a href="Channel.html">Channel</a></li><li><a href="Client.html">Client</a></li><li><a href="Collection.html">Collection</a></li><li><a href="Command.html">Command</a></li><li><a href="CommandClient.html">CommandClient</a></li><li><a href="ExtendedUser.html">ExtendedUser</a></li><li><a href="GroupChannel.html">GroupChannel</a></li><li><a href="Guild.html">Guild</a></li><li><a href="GuildAuditLogEntry.html">GuildAuditLogEntry</a></li><li><a href="GuildChannel.html">GuildChannel</a></li><li><a href="GuildIntegration.html">GuildIntegration</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Member.html">Member</a></li><li><a href="Message.html">Message</a></li><li><a href="Permission.html">Permission</a></li><li><a href="PermissionOverwrite.html">PermissionOverwrite</a></li><li><a href="PrivateChannel.html">PrivateChannel</a></li><li><a href="Relationship.html">Relationship</a></li><li><a href="RequestHandler.html">RequestHandler</a></li><li><a href="Role.html">Role</a></li><li><a href="SequentialBucket.html">SequentialBucket</a></li><li><a href="Shard.html">Shard</a></li><li><a href="SharedStream.html">SharedStream</a></li><li><a href="TextChannel.html">TextChannel</a></li><li><a href="UnavailableGuild.html">UnavailableGuild</a></li><li><a href="User.html">User</a></li><li><a href="VoiceChannel.html">VoiceChannel</a></li><li><a href="VoiceConnection.html">VoiceConnection</a></li><li><a href="VoiceDataStream.html">VoiceDataStream</a></li><li><a href="VoiceState.html">VoiceState</a></li></ul><h3>Events</h3><ul><li><a href="Client.html#event:callCreate">callCreate</a></li><li><a href="Client.html#event:callDelete">callDelete</a></li><li><a href="Client.html#event:callRing">callRing</a></li><li><a href="Client.html#event:callUpdate">callUpdate</a></li><li><a href="Client.html#event:channelCreate">channelCreate</a></li><li><a href="Client.html#event:channelDelete">channelDelete</a></li><li><a href="Client.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="Client.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="Client.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="Client.html#event:channelUpdate">channelUpdate</a></li><li><a href="Client.html#event:connect">connect</a></li><li><a href="Client.html#event:debug">debug</a></li><li><a href="Client.html#event:disconnect">disconnect</a></li><li><a href="Client.html#event:error">error</a></li><li><a href="Client.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="Client.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="Client.html#event:guildAvailable">guildAvailable</a></li><li><a href="Client.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="Client.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="Client.html#event:guildCreate">guildCreate</a></li><li><a href="Client.html#event:guildDelete">guildDelete</a></li><li><a href="Client.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="Client.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="Client.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="Client.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="Client.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="Client.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="Client.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="Client.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="Client.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="Client.html#event:guildUpdate">guildUpdate</a></li><li><a href="Client.html#event:hello">hello</a></li><li><a href="Client.html#event:messageCreate">messageCreate</a></li><li><a href="Client.html#event:messageDelete">messageDelete</a></li><li><a href="Client.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="Client.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="Client.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="Client.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="Client.html#event:messageUpdate">messageUpdate</a></li><li><a href="Client.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="Client.html#event:rawWS">rawWS</a></li><li><a href="Client.html#event:ready">ready</a></li><li><a href="Client.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="Client.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="Client.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="Client.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="Client.html#event:shardPreReady">shardPreReady</a></li><li><a href="Client.html#event:shardReady">shardReady</a></li><li><a href="Client.html#event:shardResume">shardResume</a></li><li><a href="Client.html#event:typingStart">typingStart</a></li><li><a href="Client.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="Client.html#event:unknown">unknown</a></li><li><a href="Client.html#event:userUpdate">userUpdate</a></li><li><a href="Client.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="Client.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="Client.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="Client.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="Client.html#event:warn">warn</a></li><li><a href="Client.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="CommandClient.html#event:callCreate">callCreate</a></li><li><a href="CommandClient.html#event:callDelete">callDelete</a></li><li><a href="CommandClient.html#event:callRing">callRing</a></li><li><a href="CommandClient.html#event:callUpdate">callUpdate</a></li><li><a href="CommandClient.html#event:channelCreate">channelCreate</a></li><li><a href="CommandClient.html#event:channelDelete">channelDelete</a></li><li><a href="CommandClient.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="CommandClient.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="CommandClient.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="CommandClient.html#event:channelUpdate">channelUpdate</a></li><li><a href="CommandClient.html#event:connect">connect</a></li><li><a href="CommandClient.html#event:debug">debug</a></li><li><a href="CommandClient.html#event:disconnect">disconnect</a></li><li><a href="CommandClient.html#event:error">error</a></li><li><a href="CommandClient.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="CommandClient.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="CommandClient.html#event:guildAvailable">guildAvailable</a></li><li><a href="CommandClient.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="CommandClient.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="CommandClient.html#event:guildCreate">guildCreate</a></li><li><a href="CommandClient.html#event:guildDelete">guildDelete</a></li><li><a href="CommandClient.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="CommandClient.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="CommandClient.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="CommandClient.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="CommandClient.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="CommandClient.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="CommandClient.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="CommandClient.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="CommandClient.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="CommandClient.html#event:guildUpdate">guildUpdate</a></li><li><a href="CommandClient.html#event:hello">hello</a></li><li><a href="CommandClient.html#event:messageCreate">messageCreate</a></li><li><a href="CommandClient.html#event:messageDelete">messageDelete</a></li><li><a href="CommandClient.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="CommandClient.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="CommandClient.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="CommandClient.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="CommandClient.html#event:messageUpdate">messageUpdate</a></li><li><a href="CommandClient.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="CommandClient.html#event:rawWS">rawWS</a></li><li><a href="CommandClient.html#event:ready">ready</a></li><li><a href="CommandClient.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="CommandClient.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="CommandClient.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="CommandClient.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="CommandClient.html#event:shardPreReady">shardPreReady</a></li><li><a href="CommandClient.html#event:shardReady">shardReady</a></li><li><a href="CommandClient.html#event:shardResume">shardResume</a></li><li><a href="CommandClient.html#event:typingStart">typingStart</a></li><li><a href="CommandClient.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="CommandClient.html#event:unknown">unknown</a></li><li><a href="CommandClient.html#event:userUpdate">userUpdate</a></li><li><a href="CommandClient.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="CommandClient.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="CommandClient.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="CommandClient.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="CommandClient.html#event:warn">warn</a></li><li><a href="CommandClient.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="Shard.html#event:disconnect">disconnect</a></li><li><a href="Shard.html#event:ready">ready</a></li><li><a href="Shard.html#event:resume">resume</a></li><li><a href="SharedStream.html#event:end">end</a></li><li><a href="SharedStream.html#event:start">start</a></li><li><a href="VoiceConnection.html#event:connect">connect</a></li><li><a href="VoiceConnection.html#event:debug">debug</a></li><li><a href="VoiceConnection.html#event:disconnect">disconnect</a></li><li><a href="VoiceConnection.html#event:end">end</a></li><li><a href="VoiceConnection.html#event:error">error</a></li><li><a href="VoiceConnection.html#event:pong">pong</a></li><li><a href="VoiceConnection.html#event:ready">ready</a></li><li><a href="VoiceConnection.html#event:speakingStart">speakingStart</a></li><li><a href="VoiceConnection.html#event:speakingStop">speakingStop</a></li><li><a href="VoiceConnection.html#event:warn">warn</a></li><li><a href="VoiceDataStream.html#event:data">data</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Sat May 04 2019 18:29:34 GMT-0400 (Eastern Daylight Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

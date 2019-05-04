@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: rest/RequestHandler.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: rest/RequestHandler.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>"use strict";
+
+const DiscordHTTPError = require("../errors/DiscordHTTPError");
+const DiscordRESTError = require("../errors/DiscordRESTError");
+const Endpoints = require("./Endpoints");
+const HTTPS = require("https");
+const MultipartData = require("../util/MultipartData");
+const SequentialBucket = require("../util/SequentialBucket");
+const Zlib = require("zlib");
+
+/**
+* Handles API requests
+*/
+class RequestHandler {
+    constructor(client, forceQueueing) {
+        this._client = client;
+        this.baseURL = Endpoints.BASE_URL;
+        this.userAgent = `DiscordBot (https://github.com/abalabahaha/eris, ${require("../../package.json").version})`;
+        this.ratelimits = {};
+        this.requestTimeout = client.options.requestTimeout;
+        this.latencyRef = {
+            latency: 500,
+            offset: client.options.ratelimiterOffset,
+            raw: [500, 500, 500, 500, 500, 500, 500, 500, 500, 500],
+            timeOffset: 0,
+            timeOffsets: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            lastTimeOffsetCheck: 0
+        };
+        this.globalBlock = false;
+        this.readyQueue = [];
+        if(forceQueueing) {
+            this.globalBlock = true;
+            this._client.once("shardPreReady", () => this.globalUnblock());
+        }
+    }
+
+    globalUnblock() {
+        this.globalBlock = false;
+        while(this.readyQueue.length > 0) {
+            this.readyQueue.shift()();
+        }
+    }
+
+    routefy(url, method) {
+        let route = url.replace(/\/([a-z-]+)\/(?:[0-9]{17,19})/g, function(match, p) {
+            return p === "channels" || p === "guilds" || p === "webhooks" ? match : `/${p}/:id`;
+        }).replace(/\/reactions\/[^/]+/g, "/reactions/:id").replace(/^\/webhooks\/(\d+)\/[A-Za-z0-9-_]{64,}/, "/webhooks/$1/:token");
+        if(method === "DELETE" &amp;&amp; route.endsWith("/messages/:id")) { // Delete Messsage endpoint has its own ratelimit
+            route = method + route;
+        }
+        return route;
+    }
+
+    /**
+    * Make an API request
+    * @arg {String} method Uppercase HTTP method
+    * @arg {String} url URL of the endpoint
+    * @arg {Boolean} auth Whether to add the Authorization header and token or not
+    * @arg {Object} [body] Request payload
+    * @arg {Object} [file] File object
+    * @arg {Buffer} file.file A buffer containing file data
+    * @arg {String} file.name What to name the file
+    * @returns {Promise&lt;Object>} Resolves with the returned JSON data
+    */
+    request(method, url, auth, body, file, _route, short) {
+        const route = _route || this.routefy(url, method);
+
+        const _stackHolder = {}; // Preserve async stack
+        Error.captureStackTrace(_stackHolder);
+
+        return new Promise((resolve, reject) => {
+            let attempts = 0;
+
+            const actualCall = (cb) => {
+                const headers = {
+                    "User-Agent": this.userAgent,
+                    "Accept-Encoding": "gzip,deflate"
+                };
+                let data;
+                let finalURL = url;
+
+                try {
+                    if(auth) {
+                        headers.Authorization = this._client.token;
+                    }
+                    if(body &amp;&amp; body.reason) { // Audit log reason sniping
+                        headers["X-Audit-Log-Reason"] = body.reason;
+                        delete body.reason;
+                    }
+                    if(body &amp;&amp; body.queryReason) {
+                        body.reason = body.queryReason;
+                        delete body.queryReason;
+                    }
+                    if(file) {
+                        if(Array.isArray(file)) {
+                            data = new MultipartData();
+                            headers["Content-Type"] = "multipart/form-data; boundary=" + data.boundary;
+                            file.forEach(function(f) {
+                                if(!f.file) {
+                                    return;
+                                }
+                                data.attach(f.name, f.file, f.name);
+                            });
+                            if(body) {
+                                data.attach("payload_json", body);
+                            }
+                            data = data.finish();
+                        } else if(file.file) {
+                            data = new MultipartData();
+                            headers["Content-Type"] = "multipart/form-data; boundary=" + data.boundary;
+                            data.attach("file", file.file, file.name);
+                            if(body) {
+                                data.attach("payload_json", body);
+                            }
+                            data = data.finish();
+                        } else {
+                            throw new Error("Invalid file object");
+                        }
+                    } else if(body) {
+                        if(method === "GET" || (method === "PUT" &amp;&amp; url.includes("/bans/")) || (method === "POST" &amp;&amp; url.includes("/prune"))) { // Special PUT&amp;POST case (╯°□°）╯︵ ┻━┻
+                            let qs = "";
+                            Object.keys(body).forEach(function(key) {
+                                if(body[key] != undefined) {
+                                     if(Array.isArray(body[key])) {
+                                        body[key].forEach(function(val) {
+                                            qs += `&amp;${encodeURIComponent(key)}=${encodeURIComponent(val)}`;
+                                        });
+                                    } else {
+                                        qs += `&amp;${encodeURIComponent(key)}=${encodeURIComponent(body[key])}`;
+                                    }
+                                }
+                            });
+                            finalURL += "?" + qs.substring(1);
+                        } else {
+                            data = JSON.stringify(body);
+                            headers["Content-Type"] = "application/json";
+                        }
+                    }
+                } catch(err) {
+                    cb();
+                    reject(err);
+                    return;
+                }
+
+                const req = HTTPS.request({
+                    method: method,
+                    host: "discordapp.com",
+                    path: this.baseURL + finalURL,
+                    headers: headers
+                });
+
+                let reqError;
+
+                req.once("abort", () => {
+                    cb();
+                    reqError = reqError || new Error(`Request aborted by client on ${method} ${url}`);
+                    reqError.req = req;
+                    reject(reqError);
+                }).once("aborted", () => {
+                    cb();
+                    reqError = reqError || new Error(`Request aborted by server on ${method} ${url}`);
+                    reqError.req = req;
+                    reject(reqError);
+                }).once("error", (err) => {
+                    reqError = err;
+                    req.abort();
+                });
+
+                let latency = Date.now();
+
+                req.once("response", (resp) => {
+                    latency = Date.now() - latency;
+                    this.latencyRef.raw.push(latency);
+                    this.latencyRef.latency = this.latencyRef.latency - ~~(this.latencyRef.raw.shift() / 10) + ~~(latency / 10);
+
+                    const headerNow = Date.parse(resp.headers["date"]);
+                    if(this.latencyRef.lastTimeOffsetCheck &lt; Date.now() - 5000) {
+                        const timeOffset = ~~((this.latencyRef.lastTimeOffsetCheck = Date.now()) - headerNow);
+                        if(this.latencyRef.timeOffset - this.latencyRef.latency >= this._client.options.latencyThreshold &amp;&amp; timeOffset - this.latencyRef.latency >= this._client.options.latencyThreshold) {
+                            this._client.emit("warn", new Error(`Your clock is ${this.latencyRef.timeOffset}ms behind Discord's server clock. Please check your connection and system time.`));
+                        }
+                        this.latencyRef.timeOffset = ~~(this.latencyRef.timeOffset - this.latencyRef.timeOffsets.shift() / 10 + timeOffset / 10);
+                        this.latencyRef.timeOffsets.push(timeOffset);
+                    }
+
+                    let response = "";
+
+                    let _respStream = resp;
+                    if(resp.headers["content-encoding"]) {
+                        if(resp.headers["content-encoding"].includes("gzip")) {
+                            _respStream = resp.pipe(Zlib.createGunzip());
+                        } else if(resp.headers["content-encoding"].includes("deflate")) {
+                            _respStream = resp.pipe(Zlib.createInflate());
+                        }
+                    }
+
+                    _respStream.on("data", (str) => {
+                        response += str;
+                    }).once("end", () => {
+                        const now = Date.now();
+
+                        if(resp.headers["x-ratelimit-limit"]) {
+                            this.ratelimits[route].limit = +resp.headers["x-ratelimit-limit"];
+                        }
+
+                        if(method !== "GET" &amp;&amp; (resp.headers["x-ratelimit-remaining"] == undefined || resp.headers["x-ratelimit-limit"] == undefined) &amp;&amp; this.ratelimits[route].limit !== 1) {
+                            this._client.emit("debug", `Missing ratelimit headers for SequentialBucket(${this.ratelimits[route].remaining}/${this.ratelimits[route].limit}) with non-default limit\n`
+                                + `${resp.statusCode} ${resp.headers["content-type"]}: ${method} ${route} | ${resp.headers["cf-ray"]}\n`
+                                + "content-type = " +  + "\n"
+                                + "x-ratelimit-remaining = " + resp.headers["x-ratelimit-remaining"] + "\n"
+                                + "x-ratelimit-limit = " + resp.headers["x-ratelimit-limit"] + "\n"
+                                + "x-ratelimit-reset = " + resp.headers["x-ratelimit-reset"] + "\n"
+                                + "x-ratelimit-global = " + resp.headers["x-ratelimit-global"]);
+                        }
+
+                        this.ratelimits[route].remaining = resp.headers["x-ratelimit-remaining"] === undefined ? 1 : +resp.headers["x-ratelimit-remaining"] || 0;
+
+                        if(resp.headers["retry-after"]) {
+                            if(resp.headers["x-ratelimit-global"]) {
+                                this.globalBlock = true;
+                                setTimeout(() => this.globalUnblock(), +resp.headers["retry-after"] || 1);
+                            } else {
+                                this.ratelimits[route].reset = (+resp.headers["retry-after"] || 1) + now;
+                            }
+                        } else if(resp.headers["x-ratelimit-reset"]) {
+                            if((~route.lastIndexOf("/reactions/:id")) &amp;&amp; (+resp.headers["x-ratelimit-reset"] * 1000 - headerNow) === 1000) {
+                                this.ratelimits[route].reset = Math.max(now + 250 - this.latencyRef.timeOffset, now);
+                            } else {
+                                this.ratelimits[route].reset = Math.max(+resp.headers["x-ratelimit-reset"] * 1000 - this.latencyRef.timeOffset, now);
+                            }
+                        } else {
+                            this.ratelimits[route].reset = now;
+                        }
+
+                        if(resp.statusCode !== 429) {
+                            this._client.emit("debug", `${body &amp;&amp; body.content} ${now} ${route} ${resp.statusCode}: ${latency}ms (${this.latencyRef.latency}ms avg) | ${this.ratelimits[route].remaining}/${this.ratelimits[route].limit} left | Reset ${this.ratelimits[route].reset} (${this.ratelimits[route].reset - now}ms left)`);
+                        }
+
+                        if(resp.statusCode >= 300) {
+                            if(resp.statusCode === 429) {
+                                this._client.emit("debug", `${resp.headers["x-ratelimit-global"] ? "Global" : "Unexpected"} 429 (╯°□°）╯︵ ┻━┻: ${response}\n${body &amp;&amp; body.content} ${now} ${route} ${resp.statusCode}: ${latency}ms (${this.latencyRef.latency}ms avg) | ${this.ratelimits[route].remaining}/${this.ratelimits[route].limit} left | Reset ${this.ratelimits[route].reset} (${this.ratelimits[route].reset - now}ms left)`);
+                                if(resp.headers["retry-after"]) {
+                                    setTimeout(() => {
+                                        cb();
+                                        this.request(method, url, auth, body, file, route, true).then(resolve).catch(reject);
+                                    }, +resp.headers["retry-after"]);
+                                    return;
+                                } else {
+                                    cb();
+                                    this.request(method, url, auth, body, file, route, true).then(resolve).catch(reject);
+                                    return;
+                                }
+                            } else if(resp.statusCode === 502 &amp;&amp; ++attempts &lt; 4) {
+                                this._client.emit("debug", "A wild 502 appeared! Thanks CloudFlare!");
+                                setTimeout(() => {
+                                    this.request(method, url, auth, body, file, route, true).then(resolve).catch(reject);
+                                }, Math.floor(Math.random() * 1900 + 100));
+                                return cb();
+                            }
+                            cb();
+
+                            if(response.length > 0) {
+                                if(resp.headers["content-type"] === "application/json") {
+                                    try {
+                                        response = JSON.parse(response);
+                                    } catch(err) {
+                                        reject(err);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            let {stack} = _stackHolder;
+                            if(stack.startsWith("Error\n")) {
+                                stack = stack.substring(6);
+                            }
+                            let err;
+                            if(response.code) {
+                                err = new DiscordRESTError(req, resp, response, stack);
+                            } else {
+                                err = new DiscordHTTPError(req, resp, response, stack);
+                            }
+                            reject(err);
+                            return;
+                        }
+
+                        if(response.length > 0) {
+                            if(resp.headers["content-type"] === "application/json") {
+                                try {
+                                    response = JSON.parse(response);
+                                } catch(err) {
+                                    cb();
+                                    reject(err);
+                                    return;
+                                }
+                            }
+                        }
+
+                        cb();
+                        resolve(response);
+                    });
+                });
+
+                req.setTimeout(this.requestTimeout, function() {
+                    reqError = new Error(`Request timed out (>${this.requestTimeout}ms) on ${method} ${url}`);
+                    req.abort();
+                });
+
+                if(Array.isArray(data)) {
+                    for(const chunk of data) {
+                        req.write(chunk);
+                    }
+                    req.end();
+                } else {
+                    req.end(data);
+                }
+            };
+
+            if(this.globalBlock &amp;&amp; auth) {
+                this.readyQueue.push(() => {
+                    if(!this.ratelimits[route]) {
+                        this.ratelimits[route] = new SequentialBucket(1, this.latencyRef);
+                    }
+                    this.ratelimits[route].queue(actualCall, short);
+                });
+            } else {
+                if(!this.ratelimits[route]) {
+                    this.ratelimits[route] = new SequentialBucket(1, this.latencyRef);
+                }
+                this.ratelimits[route].queue(actualCall, short);
+            }
+        });
+    }
+
+    toJSON() {
+        const base = {};
+        for(const key in this) {
+            if(this.hasOwnProperty(key) &amp;&amp; !key.startsWith("_")) {
+                if(this[key] &amp;&amp; typeof this[key].toJSON === "function") {
+                    base[key] = this[key].toJSON();
+                } else {
+                    base[key] = this[key];
+                }
+            }
+        }
+        return base;
+    }
+}
+
+module.exports = RequestHandler;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Bucket.html">Bucket</a></li><li><a href="Call.html">Call</a></li><li><a href="CategoryChannel.html">CategoryChannel</a></li><li><a href="Channel.html">Channel</a></li><li><a href="Client.html">Client</a></li><li><a href="Collection.html">Collection</a></li><li><a href="Command.html">Command</a></li><li><a href="CommandClient.html">CommandClient</a></li><li><a href="ExtendedUser.html">ExtendedUser</a></li><li><a href="GroupChannel.html">GroupChannel</a></li><li><a href="Guild.html">Guild</a></li><li><a href="GuildAuditLogEntry.html">GuildAuditLogEntry</a></li><li><a href="GuildChannel.html">GuildChannel</a></li><li><a href="GuildIntegration.html">GuildIntegration</a></li><li><a href="Invite.html">Invite</a></li><li><a href="Member.html">Member</a></li><li><a href="Message.html">Message</a></li><li><a href="Permission.html">Permission</a></li><li><a href="PermissionOverwrite.html">PermissionOverwrite</a></li><li><a href="PrivateChannel.html">PrivateChannel</a></li><li><a href="Relationship.html">Relationship</a></li><li><a href="RequestHandler.html">RequestHandler</a></li><li><a href="Role.html">Role</a></li><li><a href="SequentialBucket.html">SequentialBucket</a></li><li><a href="Shard.html">Shard</a></li><li><a href="SharedStream.html">SharedStream</a></li><li><a href="TextChannel.html">TextChannel</a></li><li><a href="UnavailableGuild.html">UnavailableGuild</a></li><li><a href="User.html">User</a></li><li><a href="VoiceChannel.html">VoiceChannel</a></li><li><a href="VoiceConnection.html">VoiceConnection</a></li><li><a href="VoiceDataStream.html">VoiceDataStream</a></li><li><a href="VoiceState.html">VoiceState</a></li></ul><h3>Events</h3><ul><li><a href="Client.html#event:callCreate">callCreate</a></li><li><a href="Client.html#event:callDelete">callDelete</a></li><li><a href="Client.html#event:callRing">callRing</a></li><li><a href="Client.html#event:callUpdate">callUpdate</a></li><li><a href="Client.html#event:channelCreate">channelCreate</a></li><li><a href="Client.html#event:channelDelete">channelDelete</a></li><li><a href="Client.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="Client.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="Client.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="Client.html#event:channelUpdate">channelUpdate</a></li><li><a href="Client.html#event:connect">connect</a></li><li><a href="Client.html#event:debug">debug</a></li><li><a href="Client.html#event:disconnect">disconnect</a></li><li><a href="Client.html#event:error">error</a></li><li><a href="Client.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="Client.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="Client.html#event:guildAvailable">guildAvailable</a></li><li><a href="Client.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="Client.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="Client.html#event:guildCreate">guildCreate</a></li><li><a href="Client.html#event:guildDelete">guildDelete</a></li><li><a href="Client.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="Client.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="Client.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="Client.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="Client.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="Client.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="Client.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="Client.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="Client.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="Client.html#event:guildUpdate">guildUpdate</a></li><li><a href="Client.html#event:hello">hello</a></li><li><a href="Client.html#event:messageCreate">messageCreate</a></li><li><a href="Client.html#event:messageDelete">messageDelete</a></li><li><a href="Client.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="Client.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="Client.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="Client.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="Client.html#event:messageUpdate">messageUpdate</a></li><li><a href="Client.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="Client.html#event:rawWS">rawWS</a></li><li><a href="Client.html#event:ready">ready</a></li><li><a href="Client.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="Client.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="Client.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="Client.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="Client.html#event:shardPreReady">shardPreReady</a></li><li><a href="Client.html#event:shardReady">shardReady</a></li><li><a href="Client.html#event:shardResume">shardResume</a></li><li><a href="Client.html#event:typingStart">typingStart</a></li><li><a href="Client.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="Client.html#event:unknown">unknown</a></li><li><a href="Client.html#event:userUpdate">userUpdate</a></li><li><a href="Client.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="Client.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="Client.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="Client.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="Client.html#event:warn">warn</a></li><li><a href="Client.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="CommandClient.html#event:callCreate">callCreate</a></li><li><a href="CommandClient.html#event:callDelete">callDelete</a></li><li><a href="CommandClient.html#event:callRing">callRing</a></li><li><a href="CommandClient.html#event:callUpdate">callUpdate</a></li><li><a href="CommandClient.html#event:channelCreate">channelCreate</a></li><li><a href="CommandClient.html#event:channelDelete">channelDelete</a></li><li><a href="CommandClient.html#event:channelPinUpdate">channelPinUpdate</a></li><li><a href="CommandClient.html#event:channelRecipientAdd">channelRecipientAdd</a></li><li><a href="CommandClient.html#event:channelRecipientRemove">channelRecipientRemove</a></li><li><a href="CommandClient.html#event:channelUpdate">channelUpdate</a></li><li><a href="CommandClient.html#event:connect">connect</a></li><li><a href="CommandClient.html#event:debug">debug</a></li><li><a href="CommandClient.html#event:disconnect">disconnect</a></li><li><a href="CommandClient.html#event:error">error</a></li><li><a href="CommandClient.html#event:friendSuggestionCreate">friendSuggestionCreate</a></li><li><a href="CommandClient.html#event:friendSuggestionDelete">friendSuggestionDelete</a></li><li><a href="CommandClient.html#event:guildAvailable">guildAvailable</a></li><li><a href="CommandClient.html#event:guildBanAdd">guildBanAdd</a></li><li><a href="CommandClient.html#event:guildBanRemove">guildBanRemove</a></li><li><a href="CommandClient.html#event:guildCreate">guildCreate</a></li><li><a href="CommandClient.html#event:guildDelete">guildDelete</a></li><li><a href="CommandClient.html#event:guildEmojisUpdate">guildEmojisUpdate</a></li><li><a href="CommandClient.html#event:guildMemberAdd">guildMemberAdd</a></li><li><a href="CommandClient.html#event:guildMemberChunk">guildMemberChunk</a></li><li><a href="CommandClient.html#event:guildMemberRemove">guildMemberRemove</a></li><li><a href="CommandClient.html#event:guildMemberUpdate">guildMemberUpdate</a></li><li><a href="CommandClient.html#event:guildRoleCreate">guildRoleCreate</a></li><li><a href="CommandClient.html#event:guildRoleDelete">guildRoleDelete</a></li><li><a href="CommandClient.html#event:guildRoleUpdate">guildRoleUpdate</a></li><li><a href="CommandClient.html#event:guildUnavailable">guildUnavailable</a></li><li><a href="CommandClient.html#event:guildUpdate">guildUpdate</a></li><li><a href="CommandClient.html#event:hello">hello</a></li><li><a href="CommandClient.html#event:messageCreate">messageCreate</a></li><li><a href="CommandClient.html#event:messageDelete">messageDelete</a></li><li><a href="CommandClient.html#event:messageDeleteBulk">messageDeleteBulk</a></li><li><a href="CommandClient.html#event:messageReactionAdd">messageReactionAdd</a></li><li><a href="CommandClient.html#event:messageReactionRemove">messageReactionRemove</a></li><li><a href="CommandClient.html#event:messageReactionRemoveAll">messageReactionRemoveAll</a></li><li><a href="CommandClient.html#event:messageUpdate">messageUpdate</a></li><li><a href="CommandClient.html#event:presenceUpdate">presenceUpdate</a></li><li><a href="CommandClient.html#event:rawWS">rawWS</a></li><li><a href="CommandClient.html#event:ready">ready</a></li><li><a href="CommandClient.html#event:relationshipAdd">relationshipAdd</a></li><li><a href="CommandClient.html#event:relationshipRemove">relationshipRemove</a></li><li><a href="CommandClient.html#event:relationshipUpdate">relationshipUpdate</a></li><li><a href="CommandClient.html#event:shardDisconnect">shardDisconnect</a></li><li><a href="CommandClient.html#event:shardPreReady">shardPreReady</a></li><li><a href="CommandClient.html#event:shardReady">shardReady</a></li><li><a href="CommandClient.html#event:shardResume">shardResume</a></li><li><a href="CommandClient.html#event:typingStart">typingStart</a></li><li><a href="CommandClient.html#event:unavailableGuildCreate">unavailableGuildCreate</a></li><li><a href="CommandClient.html#event:unknown">unknown</a></li><li><a href="CommandClient.html#event:userUpdate">userUpdate</a></li><li><a href="CommandClient.html#event:voiceChannelJoin">voiceChannelJoin</a></li><li><a href="CommandClient.html#event:voiceChannelLeave">voiceChannelLeave</a></li><li><a href="CommandClient.html#event:voiceChannelSwitch">voiceChannelSwitch</a></li><li><a href="CommandClient.html#event:voiceStateUpdate">voiceStateUpdate</a></li><li><a href="CommandClient.html#event:warn">warn</a></li><li><a href="CommandClient.html#event:webhooksUpdate">webhooksUpdate</a></li><li><a href="Shard.html#event:disconnect">disconnect</a></li><li><a href="Shard.html#event:ready">ready</a></li><li><a href="Shard.html#event:resume">resume</a></li><li><a href="SharedStream.html#event:end">end</a></li><li><a href="SharedStream.html#event:start">start</a></li><li><a href="VoiceConnection.html#event:connect">connect</a></li><li><a href="VoiceConnection.html#event:debug">debug</a></li><li><a href="VoiceConnection.html#event:disconnect">disconnect</a></li><li><a href="VoiceConnection.html#event:end">end</a></li><li><a href="VoiceConnection.html#event:error">error</a></li><li><a href="VoiceConnection.html#event:pong">pong</a></li><li><a href="VoiceConnection.html#event:ready">ready</a></li><li><a href="VoiceConnection.html#event:speakingStart">speakingStart</a></li><li><a href="VoiceConnection.html#event:speakingStop">speakingStop</a></li><li><a href="VoiceConnection.html#event:warn">warn</a></li><li><a href="VoiceDataStream.html#event:data">data</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Sat May 04 2019 18:29:34 GMT-0400 (Eastern Daylight Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
